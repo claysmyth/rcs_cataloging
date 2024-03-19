@@ -1,0 +1,16 @@
+[package]
+name = "rcs_cataloging"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "rcs_cataloging"
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+polars = "0.38.1"
+pyo3 = {version = "*"}
+pyo3-polars = {version = "0.12"}
