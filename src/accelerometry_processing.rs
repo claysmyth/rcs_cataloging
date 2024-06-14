@@ -8,14 +8,13 @@ use pyo3_polars::PyDataFrame;
 use chrono::{TimeZone, Utc, Local};
 
 #[derive(Deserialize)]
-struct TimeDomainPacket {
+struct AccelPacket {
     Header: Header,
     PacketGenTime: i64,
     PacketRxUnixTime: i64,
-    ChannelSamples: Vec<ChannelSample>,
-    DebugInfo: i64,
-    //EvokedMarker: Vec<i64>,
-    IncludedChannels: i64,
+    XSamples: Vec<f64>,
+    YSamples: Vec<f64>,
+    ZSamples: Vec<f64>,
     SampleRate: i64,
     Units: String,
 }
@@ -38,14 +37,8 @@ struct Timestamp {
     seconds: i64,
 }
 
-#[derive(Deserialize)]
-struct ChannelSample {
-    Key: i64, // Consider Enum for Key so that it can be Key::Channel0, Key::Channel1, etc...
-    Value: Vec<f64>,
-}
-
 // Implement the `FromPyObject` trait for `TimeDomainPacket`
-impl<'a> FromPyObject<'a> for TimeDomainPacket {
+impl<'a> FromPyObject<'a> for AccelPacket {
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         let dict = obj.downcast::<PyDict>()?;
 
@@ -67,28 +60,28 @@ impl<'a> FromPyObject<'a> for TimeDomainPacket {
         let packet_gen_time = dict.get_item("PacketGenTime").unwrap().expect("REASON").extract()?;
         let packet_rx_unix_time = dict.get_item("PacketRxUnixTime").unwrap().expect("REASON").extract()?;
 
-        let channel_samples = dict.get_item("ChannelSamples").unwrap().expect("REASON").downcast::<PyList>()?.iter().map(|obj| {
-            let sample_dict = obj.downcast::<PyDict>().unwrap();
-            ChannelSample {
-                Key: sample_dict.get_item("Key").unwrap().expect("REASON").extract().expect("REASON"),
-                Value: sample_dict.get_item("Value").unwrap().expect("REASON").downcast::<PyList>().unwrap().extract().unwrap(),
-            }
-        }).collect::<Vec<_>>();
+        let x_samples = dict.get_item("XSamples").unwrap().expect("REASON").downcast::<PyList>()?.extract::<Vec<f64>>()?;
+        let y_samples = dict.get_item("YSamples").unwrap().expect("REASON").downcast::<PyList>()?.extract::<Vec<f64>>()?;
+        let z_samples = dict.get_item("ZSamples").unwrap().expect("REASON").downcast::<PyList>()?.extract::<Vec<f64>>()?;
 
-        let debug_info = dict.get_item("DebugInfo").unwrap().expect("REASON").extract()?;
-        // let evoked_marker = dict.get_item("EvokedMarker").unwrap().expect("REASON").downcast::<PyList>()?.extract::<Vec<i64>>()?;
-        let included_channels = dict.get_item("IncludedChannels").unwrap().expect("REASON").extract()?;
+        // let channel_samples = dict.get_item("ChannelSamples").unwrap().expect("REASON").downcast::<PyList>()?.iter().map(|obj| {
+        //     let sample_dict = obj.downcast::<PyDict>().unwrap();
+        //     ChannelSample {
+        //         Key: sample_dict.get_item("Key").unwrap().expect("REASON").extract().expect("REASON"),
+        //         Value: sample_dict.get_item("Value").unwrap().expect("REASON").downcast::<PyList>().unwrap().extract().unwrap(),
+        //     }
+        // }).collect::<Vec<_>>();
+
         let sample_rate = dict.get_item("SampleRate").unwrap().expect("REASON").extract()?;
         let units = dict.get_item("Units").unwrap().expect("REASON").extract()?;
 
-        Ok(TimeDomainPacket {
+        Ok(AccelPacket {
             Header: header,
             PacketGenTime: packet_gen_time,
             PacketRxUnixTime: packet_rx_unix_time,
-            ChannelSamples: channel_samples,
-            DebugInfo: debug_info,
-            // EvokedMarker: evoked_marker, Ingore this for now, throws errors when EvokedMarker is not None
-            IncludedChannels: included_channels,
+            XSamples: x_samples,
+            YSamples: y_samples,
+            ZSamples: z_samples,
             SampleRate: sample_rate,
             Units: units,
         })
@@ -96,42 +89,19 @@ impl<'a> FromPyObject<'a> for TimeDomainPacket {
 }
 
 #[pyfunction]
-pub fn loop_and_table_td_data(py: Python, data_list: Vec<PyObject>) -> PyResult<PyObject> {
-    let mut data = Vec::<TimeDomainPacket>::new();
-    for (index, item) in data_list.into_iter().enumerate() {
-        // let time_domain_packet: TimeDomainPacket = item.extract::<TimeDomainPacket>(py).expect("REASON");
-        let time_domain_packet: TimeDomainPacket = item.extract::<TimeDomainPacket>(py).map_err(|e| {
-            eprintln!("Failed to extract TimeDomainPacket: {}: {:?}", index, e);
-            e
-        })?;
+pub fn loop_and_table_accel_data(py: Python, data_list: Vec<PyObject>) -> PyResult<PyObject> {
+    let mut data = Vec::<AccelPacket>::new();
+    for item in data_list {
+        let time_domain_packet: AccelPacket = item.extract::<AccelPacket>(py).expect("REASON");
         data.push(time_domain_packet);
     }
 
-    let packet_size: Vec<i64> = data.iter().map(|p| p.ChannelSamples[0].Value.len() as i64).collect();
+    // let packet_size = data[0].XSamples.len();
 
-    let channel_0 = data.iter().enumerate().map(|(index, p)| {
-        let value = p.ChannelSamples.iter().find(|sample| sample.Key == 0).map(|sample| Series::new("", sample.Value.clone()));
-        let size = packet_size.get(index).copied().unwrap_or(0) as usize;
-        value.unwrap_or_else(|| Series::full_null("", size, &DataType::Float64))
-    }).collect::<Vec<_>>();
+    // let XSamples = data.iter().map(|p| Series::new("", &p.XSamples)).collect::<Vec<_>>();
+    // let YSamples = data.iter().map(|p| Series::new("", &p.YSamples)).collect::<Vec<_>>();
+    // let ZSamples = data.iter().map(|p| Series::new("", &p.ZSamples)).collect::<Vec<_>>();
 
-    let channel_1 = data.iter().enumerate().map(|(index, p)| {
-        let value = p.ChannelSamples.iter().find(|sample| sample.Key == 1).map(|sample| Series::new("", sample.Value.clone()));
-        let size = packet_size.get(index).copied().unwrap_or(0) as usize;
-        value.unwrap_or_else(|| Series::full_null("", size, &DataType::Float64))
-    }).collect::<Vec<_>>();
-
-    let channel_2 = data.iter().enumerate().map(|(index, p)| {
-        let value = p.ChannelSamples.iter().find(|sample| sample.Key == 2).map(|sample| Series::new("", sample.Value.clone()));
-        let size = packet_size.get(index).copied().unwrap_or(0) as usize;
-        value.unwrap_or_else(|| Series::full_null("", size, &DataType::Float64))
-    }).collect::<Vec<_>>();
-
-    let channel_3 = data.iter().enumerate().map(|(index, p)| {
-        let value = p.ChannelSamples.iter().find(|sample| sample.Key == 3).map(|sample| Series::new("", sample.Value.clone()));
-        let size = packet_size.get(index).copied().unwrap_or(0) as usize;
-        value.unwrap_or_else(|| Series::full_null("", size, &DataType::Float64))
-    }).collect::<Vec<_>>();
 
     let df = DataFrame::new(vec![
         // Series::new("localTime", data.iter().map(|p| Utc.timestamp(p.PacketRxUnixTime / 1000, (p.PacketRxUnixTime % 1000 * 1_000_000).try_into().unwrap()).with_timezone(&Local).format("%Y-%m-%d %H:%M:%S%.3f").to_string()).collect::<Vec<_>>()),
@@ -141,10 +111,9 @@ pub fn loop_and_table_td_data(py: Python, data_list: Vec<PyObject>) -> PyResult<
         Series::new("systemTick", data.iter().map(|p| p.Header.systemTick).collect::<Vec<_>>()),
         Series::new("dataTypeSequence", data.iter().map(|p| p.Header.dataTypeSequence).collect::<Vec<_>>()),
         Series::new("samplerate", data.iter().map(|p| p.SampleRate).collect::<Vec<_>>()),
-        Series::new("key0", channel_0),
-        Series::new("key1", channel_1),
-        Series::new("key2", channel_2),
-        Series::new("key3", channel_3),
+        Series::new("XSamples", data.iter().map(|p| Series::new("", &p.XSamples)).collect::<Vec<_>>()),
+        Series::new("YSamples", data.iter().map(|p| Series::new("", &p.YSamples)).collect::<Vec<_>>()),
+        Series::new("ZSamples", data.iter().map(|p| Series::new("", &p.ZSamples)).collect::<Vec<_>>()),
     ]);
 
     // Convert the Result<DataFrame, PolarsError> to a PyObject

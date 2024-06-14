@@ -15,3 +15,4 @@ polars = "0.38.1"
 pyo3 = {version = "*"}
 pyo3-polars = {version = "0.12"}
 chrono = "0.4"
+ndarray = "0.15"

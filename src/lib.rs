@@ -7,11 +7,13 @@ use polars::prelude::*;
 use pyo3_polars::PyDataFrame;
 
 mod time_domain_processing;
+mod accelerometry_processing;
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn rcs_cataloging(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(time_domain_processing::loop_and_table_td_data, m)?)?;
+    m.add_function(wrap_pyfunction!(accelerometry_processing::loop_and_table_accel_data, m)?)?;
     Ok(())
 }
 
